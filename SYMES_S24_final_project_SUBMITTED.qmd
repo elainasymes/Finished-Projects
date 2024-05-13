@@ -1,0 +1,388 @@
+---
+title: "Investigating Factors That Lead to Increased Black Maternal Mortality"
+author: "Elaina Symes"
+date: 2024-05-03
+format: 
+  html: 
+    self-contained: true
+    toc: true
+    fig-width: 6
+    fig-asp: 0.618
+editor: visual
+execute:
+  echo: false
+bibliography: references.bib
+---
+
+## Aim
+
+Maternal mortality in the United States is unusually high compared to other nations with substantial wealth [@crear-perry2021]. The World Health Organization defines maternal death as the yearly number of deaths from any cause related to or exacerbated by a pregnancy [@who]. Death rates are 2-3 times higher for Black birthing people compared to their White counterparts [@wang2023]. This is a social determinant of health (SDOH)- a non-medical factor that influences health outcomes. It is estimated that 3 out of 5 maternal deaths could be prevented by reducing barriers to care, culturally competent medical staff, and more robust protocols and prevention systems for common perinatal or postpartum complications [@Chinn2020]. With this project I aim to determine what factors influence increased maternal mortality for Black birthing people.
+
+## Questions
+
+-   How does the US compare to other high income countries? Is there a relationship with GDP?
+
+-   How do social determinants of health effect health outcomes? Does it vary by race or class?
+
+-   What are the common causes of maternal death?
+
+## Scope and System
+
+The bulk of the analysis focuses on maternal mortality and contributing factors in the United States. There is also a brief comparative analysis between other high income countries countries using UNICEF's maternal mortality data set.
+
+## Methods
+
+Data from UNICEF Data [@unicef] were used to compare the maternal mortality rate (MMR) of the United States and other high income countries and those with robust healthcare systems [@gauld2014]. Each country's MMR was compared to its average GDP per Capita [@worldbank].
+
+The Centers for Disease Control and Prevention (CDC) has an ongoing surveillance system that records maternal deaths by age and race which was used to show the trends in death by race [@centersfordiseasecontrolandprevention]. A National Vital Statistics Report report in 2020 from the CDC was used to find relationships between SDOH and mortality, specifically payment methods for delivery and pre-natal care [@osterman2021]. Additionally, socioeconomic status (SES) and maternal educational attainment data were extracted from a paper investigating how social determinants of health lead to increased maternal mortality [@singh2020a].
+
+Finally, maternal causes of death were extracted from a paper investigating the trends in maternal mortality from 1969 to 2018 [@singh2020].
+
+## Results
+
+### Maternal Mortality in the US Compared to High Income Countries
+
+```{r}
+#| label: Loading Packages
+#| message: false
+
+library(tidyverse)
+library(readxl)
+library(gt)
+library(ggrepel)
+library(janitor)
+library(scales)
+library(patchwork)
+```
+
+```{r}
+#| label: Loading Data
+#| message: false
+
+MMR_by_country <- read_excel("~/Desktop/R Final Project/MMR-By-Country.xlsx")
+
+COD <- read_excel("~/Desktop/R Final Project/Maternal Causes of Death.xlsx")
+
+Social_determinants <- read_excel("~/Desktop/R Final Project/Medical and Health Characteristics.xlsx")
+
+SES <- read_excel("~/Desktop/R Final Project/SES.xlsx")
+
+Death_trends <- read_excel("~/Desktop/R Final Project/Maternal Death Trends.xlsx")
+
+Mortality_by_race <- read.csv("~/Desktop/R Final Project/VSRR_Provisional_Maternal_Death_Counts_and_Rates.csv")
+
+GDP <- read.csv("gdp-per-capita-worldbank.csv")
+```
+
+```{r}
+#| label: fig-US-vs-other-countries
+#| fig-cap: "Source: UNICEF"
+
+MMR_by_country_clean <- MMR_by_country[-c(1,2,3),] |> 
+  rename(UNICEF_Region = `Estimates of country-level maternal mortality ratio (MMR; maternal deaths per 100,000 live births) 2000-2020`) |> 
+  rename(country_code = '...2') |> 
+  rename(country = '...3') |> 
+  rename('2000' = '...4') |> 
+  rename('2005' = '...5') |> 
+  rename('2010' = '...6') |> 
+  rename('2015' = '...7') |> 
+  rename('2020' = '...8') 
+
+MMR_by_country_tidy <- MMR_by_country_clean |> 
+  pivot_longer(
+    cols = starts_with("20"),
+    names_to = "year",
+    values_to = "deaths") |> 
+  mutate(deaths = as.numeric(deaths))
+
+HI_countries <- MMR_by_country_tidy |> 
+  filter(country == 'Australia'| country == "United States"|country == "Canada"|country == "Norway"| country == "United Kingdom"| country == "Germany"|country == "Netherlands"|country == "New Zealand")
+  
+  
+ggplot(HI_countries, aes(x = deaths, y = country, fill = factor(year))) +
+  geom_col(position = "dodge") +
+  scale_fill_manual(values = c("#7A306C", "#225560", "#A9E4EF", "#EDF060","#F0803C"))+
+  labs(title = "Maternal Mortality in High Income Countries", 
+       y = "Country", x = "Maternal Deaths per 100,000 Live Births",
+       fill = "Year")+
+  theme_bw()
+
+```
+
+In the majority of the world, maternal mortality has steadily decreased due due to advances in medicine and a global movement towards universal health systems. The United States is an outlier in that it is the only "high income" country not using some form of social insurance. Despite the US spending more healthcare dollars, its health outcomes rank poorly [@gauld2014]. @fig-US-vs-other-countries shows that maternal mortality in the US has grown since 2000, unlike its wealthy counterparts. However, 2020 does not match the observed pattern for some countries which could be due to the COVID-19 pandemic.
+
+```{r}
+#| label: fig-countries-with-least-MMR
+#| fig-cap: "Source: UNICEF"
+
+average_deaths <- MMR_by_country_tidy |> 
+  group_by(country) |> 
+  summarise(avg_deaths = mean(deaths))
+
+top_10 <- average_deaths |> 
+  slice_min(avg_deaths, n = 10)
+
+top_10_table <- gt(top_10)
+top_10_table |> 
+  cols_label(country = "Country") |> 
+  cols_label(avg_deaths = "Average Deaths per 100,000 Live Births") |> 
+  tab_header(
+    title = "Countries with Lowest Maternal Mortality Rates")
+```
+
+The countries in @fig-countries-with-least-MMR are those with the smallest average MMR from 2000 to 2020. Population size should be taken into consideration since countries with less people will ultimately have less deaths.
+
+### How Does GDP Effect Maternal Mortality?
+
+```{r}
+#| label: fig-MMR-and-avg-GDP-high-income-countries
+#| fig-cap: "Source: UNICEF, World Bank"
+#| fig-subcap: "Averages were calculated with data points from 2000, 2005, 2010, 2015, and 2020."
+
+GDP_of_interest <- GDP |> 
+  rename(gdp_per_capita = GDP.per.capita..PPP..constant.2017.international...) |> 
+  rename(country = Entity) |> 
+  select(country, Year, gdp_per_capita) |> 
+  filter(Year == 2000|Year== 2005| Year== 2010| Year==2015|Year==2020) |> 
+  filter(country == 'United States'| country== 'United Kingdom'| 
+           country== 'Norway'|country== 'New Zealand'|country== 'Netherlands'| 
+           country== 'Germany'|country == 'Canada'| country == 'Australia')
+
+avg_GDP <- GDP_of_interest |> 
+  group_by(country) |> 
+  summarise(avg_GDP = mean(gdp_per_capita))
+
+avg_HI <- HI_countries |> 
+  group_by(country) |> 
+  summarise(avg_deaths = mean(deaths))
+
+GDP_MMR <- inner_join(avg_HI,avg_GDP, by = "country")
+
+ggplot(GDP_MMR, aes(x = avg_deaths, y = avg_GDP, label = country))+
+  geom_point()+
+  geom_label_repel(aes(label= country)) +
+  theme_bw()+
+  labs(
+    title = "Maternal Mortality in High Income Contries in Relation to GDP per Capita",
+    y = "Average GDP per Capita (USD)",
+    x = "Average Maternal Deaths per 100,000 Live Births")
+```
+
+@fig-MMR-and-avg-GDP-high-income-countries further illustrates that the US in an outlier in the relationship between wealth and better outcomes.
+
+### Maternal Mortality in the US by Race
+
+```{r}
+#| label: fig-MMR-by-race
+#| fig-cap: "Source: CDC"
+#| message: false
+clean_Mortality_by_race <- Mortality_by_race|> 
+  drop_na() |> 
+  filter(Group == "Race and Hispanic origin") |> 
+  rename(Race = Subgroup) |> 
+  select(Race, Year.of.Death,Month.of.Death,Maternal.Deaths,Live.Births,Maternal.Mortality.Rate) |> 
+  filter(Race != "American Indian or Alaska Native, Non-Hispanic")
+
+average_mmr <- clean_Mortality_by_race |> 
+  group_by(Race, Year.of.Death) |> 
+  summarise(avg_mmr = mean(Maternal.Mortality.Rate)) |>
+  mutate(Race = ifelse(Race == "White, Non-Hispanic","White",
+                       ifelse(Race == "Black, Non-Hispanic", "Black", 
+                              ifelse(Race == "Asian, Non-Hispanic", "Asian", Race))))
+
+average_mmr |> 
+  ggplot(aes(x = Year.of.Death, y = avg_mmr,color = Race))+
+  geom_point(size = 3) +
+  geom_line(linewidth = 1)+
+  scale_color_manual(values = c("White" = "#7A306C",
+                                "Black" = "#225560",
+                                "Asian" = "#A9E4EF",
+                                "Hispanic" = "#EDF060")) +
+  labs(title = "United States Maternal Mortality Rate by Race (2019-2023)",
+       x = "Year",
+       y = "Average Maternal Deaths per 100,000 Live Births")+
+  theme_bw()
+```
+
+Black birthing people are significantly more likely to die from complications due to childbirth. This is a complex, nuanced problem that origins dating back to slavery and the Jim Crow. SDOH and access to care play a significant role that will be analyzed further.
+
+### Social Determinants of Health
+
+SDOH are defined as "the conditions in the environments where people are born, live, learn, work, play, worship, and age that affect a wide range of health, functioning, and quality-of-life outcomes and risks" [@u.s.departmentofhealthandhumanservices]. The determinants of interest are: onset of pre-natal care, insurance status, education, and SES.
+
+```{r}
+#| label: fig-pre-natal-treatment
+#| fig-cap: "Source: Osterman et al. 2021"
+#| message: false
+
+
+Social_determinants_clean <- Social_determinants |> 
+  select(Characteristic,Total,White,Black, Hispanic)
+
+Social_determinants_tidy <- Social_determinants_clean |> 
+  pivot_longer(
+    cols = 3:5,
+    names_to = "race",
+    values_to = "Percent"
+  ) |> 
+  mutate(Total = as.numeric(Total),
+         Percent = as.numeric(Percent))
+
+#Filtering characteristics
+prenatal <- Social_determinants_tidy |> 
+  filter(Characteristic == "First Trimester"| Characteristic == "Late or none")
+
+ggplot(prenatal, aes(x =  Characteristic, y = Percent, fill = race))+
+  geom_bar(stat = "identity", position = "dodge")+
+  scale_y_continuous(limits = c(0, 100))+
+  labs(
+    title = "Onset of Pre-Natal Care (2020)",
+    x = "Timepoint",
+    y = "Percent")+
+  scale_fill_manual(name = "Race", values = c("White" = "#7A306C", "Black" = "#225560", "Hispanic" = "#EDF060"))+
+  theme_bw()
+
+```
+
+Early onset of pre-natal care is strong across all races. Black and Hispanic birthing people are more likely to start pre-natal care late or not at all.
+
+```{r}
+#| label: fig-method-payment
+#| fig-cap: "Source: Osterman et al. 2021"
+#| message: false
+
+payment <- Social_determinants_tidy |> 
+  filter(Characteristic == "Medicaid" |Characteristic == "Private"|Characteristic == "Self Pay"|Characteristic == "Other"|Characteristic == "WIC")
+
+payment$Characteristic <- factor(payment$Characteristic, 
+                                 levels = c("WIC", "Medicaid", "Private", "Self Pay", "Other"))
+ggplot(payment, aes(x =  Characteristic, y = Percent, fill = race))+
+         geom_bar(stat = "identity", position = "dodge")+
+  scale_y_continuous(limits = c(0, 100))+
+  labs(
+    title = "Method of Payment for Delivery (2020)", 
+    x = "Method")+
+  scale_fill_manual(name = "Race",values = c("White" = "#7A306C", "Black" = "#225560", "Hispanic" = "#EDF060"))+
+  theme_bw()
+
+```
+
+There is a stark racial stratification across insurance statuses. Black and Hispanic birthing people are more likely to receive WIC benefits and be on Medicaid. Conversely, White birthing people are more likely to have private insurance.
+
+```{r}
+#| label: fig-educational-attainment
+#| fig-cap: "Source: Singh and Lee"
+
+
+SES_clean <- SES[-c(1),] |> 
+  rename(variable = "2013-2017",
+         total = "https://www.ncbi.nlm.nih.gov/pmc/articles/PMC7792750/",
+         White = "...3",
+         Black = "...4",
+         Hispanic = "...5"
+  )
+
+SES_tidy <- SES_clean |> 
+  pivot_longer(
+    cols = 3:5,
+    names_to = "race",
+    values_to = "MMR") |> 
+  mutate(MMR = as.numeric(MMR))
+
+edu <- SES_tidy |> 
+  filter(variable %in% c("Less than High School", "High School", "Some College", "College or more"))
+
+edu$variable <- factor(edu$variable, levels = c("Less than High School", "High School", "Some College", "College or more"))
+
+ggplot(edu, aes(x = variable, y = MMR, fill = race))+
+  geom_bar(stat = "identity", position = "dodge")+
+  labs(
+    title = "Maternal Mortality in Relation to Maternal Education (2013-2017)",
+    x = "Level of Education",
+    y = "Maternal Deaths per 100,000 Live Births"
+  )+
+  scale_fill_manual(name = "Race", values = c("White" = "#7A306C", "Black" = "#225560", "Hispanic" = "#EDF060"))+
+  theme_bw()
+
+```
+
+Maternal deaths decrease with more educational attainment for White and Hispanic populations. In contrast, Black individuals are still at higher risk for death regardless of educational attainment.
+
+```{r}
+#| label: fig-class
+#| fig-cap: "Source: Singh and Lee 2020"
+#| message: false
+
+class <- SES_tidy |> 
+  filter(variable %in% c("Low SES","Middle SES","High SES"))
+
+class$variable <- factor(class$variable, levels = c("Low SES","Middle SES","High SES"))
+
+ggplot(class, aes(x = variable, y = MMR, fill = race))+
+  geom_bar(stat = "identity", position = "dodge")+
+  labs(
+    title = "Maternal Mortality in Relation to Class (2013-2017)",
+    x = "Class",
+    y = "Maternal Deaths per 100,000 Live Births"
+  )+
+  scale_fill_manual(name = "Race", values = c("White" = "#7A306C", "Black" = "#225560", "Hispanic" = "#EDF060"))+
+  theme_bw()
+
+```
+
+Wealth and health have a relationship with each other due to the US's market based health system. Mortality decreases with higher SES across all races. As with the all the aforementioned SDOH, Black birthing people are still at increased risk despite their class status.
+
+### Causes of Death
+
+```{r}
+#| label: fig-COD
+#| fig-cap: "Source: Singh 2020"
+#| message: false
+#| warning: false
+
+COD <- COD |> 
+  select(Cause, White, Black, Hispanic)
+
+COD$Hispanic <- as.numeric(COD$Hispanic)
+
+COD_tidy <- COD |> 
+  na.omit() |> 
+  pivot_longer(
+    cols = 2:4,
+    names_to = "Race",
+    values_to = "MMR"
+  ) |> 
+  mutate(MMR = as.numeric(MMR))
+
+ggplot(COD_tidy, aes(x = Cause, y = MMR, fill = Race)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_fill_manual(name = "Race", 
+                    values = c("White" = "#7A306C", 
+                               "Black" = "#225560", 
+                               "Hispanic" = "#EDF060")) +
+  scale_y_continuous(breaks = seq(0, max(COD_tidy$MMR), by = 5)) +
+  labs(
+    title = "Maternal Causes of Death by Race (2013-2017)",
+    x = "Cause of Death",
+    y = "Maternal Deaths per 100,000 Live Births"
+  )+
+  theme_bw()+
+  theme(axis.text.x = element_text(angle = 15, hjust = 1))
+
+```
+
+Indirect obstetric causes are the most common cause of death. These include can include pre-exisiting conditions that are worsened by pregnancy, infections, or sepsis. Black birthing people are at higher risk for eclampsia or pre-eclampsia which is persistent high blood pressure that can lead to other cardiac problems.
+
+## Discussion
+
+![Source: Crear-Perry 2021](causation.jpg){#fig-web}
+
+As expected, I found that Black birthing people are at greater risk of maternal mortality regardless of insurance status, class, or education. SDOH worsen mortality rates for every race as seen in @fig-pre-natal-treatment, @fig-method-payment, @fig-educational-attainment, and @fig-class.
+
+Many scholars suggest policy changes such as paid family leave and Medicaid expansion to reduce MMR. Investing in historically disadvantaged communities affected by slavery, Jim Crow, the 13th Amendment, among other policies enforcing systemic racism as seen in @fig-web will lessen MMR in those communities [@crear-perry2021]. Although these policies are in the past, they still have modern day consequences. Chinn cites improving provider-patient relationships, healthcare infrastructure, and research as possible avenues for improvement [@Chinn2020]. However, structural racism is the primary cause of racial health disparities so interventions should address more than the healthcare system like housing, safety, income, etc.
+
+Many providers (MDs, nurses, etc.) still hold onto racial biases and medical myths. There are still healthcare professionals who believe that Black people cannot feel pain and therefore, receive lower quality treatment [@crear-perry2021]. Increasing the number of Black physicians, particularly OB/GYNs, will help improve provider relationships and trust.
+
+Future research should investigate other SDOH besides those health related to provide well-rounded, whole solutions. Also, having a more thorough understanding of the indirect obstetric causes and eclampsia/pre-eclampsia will significantly impact MMR as seen in @fig-COD.
+
+In sum, Black maternal mortality is preventable and more research and protective policies are needed to dismantle systemic racism to increase health equity.
